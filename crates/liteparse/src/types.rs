@@ -75,7 +75,7 @@ pub struct ParsedPage {
 }
 
 #[doc(hidden)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum Snap {
     Left,
     Right,
@@ -83,7 +83,7 @@ pub enum Snap {
 }
 
 #[doc(hidden)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum Anchor {
     Left,
     Right,
@@ -91,7 +91,7 @@ pub enum Anchor {
 }
 
 #[doc(hidden)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ProjectedTextItem {
     pub item: TextItem,
     pub snap: Snap,

@@ -454,6 +454,13 @@ fn form_lines(
         if (cur.item.y - prev.item.y).abs() <= y_tolerance
             && (cur.item.height - prev.item.height).abs() <= h_tolerance
         {
+            let number_and_hebrew = (looks_like_table_number(&prev.item.text)
+                && contains_hebrew(&cur.item.text))
+                || (contains_hebrew(&prev.item.text) && looks_like_table_number(&cur.item.text));
+            if number_and_hebrew {
+                return false;
+            }
+
             let delta_x = cur.item.x - (prev.item.x + prev.item.width);
             return (-0.5..0.0).contains(&delta_x) || (0.0..0.1).contains(&delta_x);
         }
@@ -580,48 +587,16 @@ fn form_lines(
     // merge 'words'
     const MERGE_THRESHOLD: f32 = 1.0;
 
-    fn looks_like_table_number(text: &str) -> bool {
-        let trimmed = text.trim();
-        if trimmed.chars().count() < 2 {
-            return false;
-        }
-
-        let mut chars = trimmed.chars().peekable();
-        if matches!(chars.peek(), Some('$')) {
-            chars.next();
-        }
-        if matches!(chars.peek(), Some('-')) {
-            chars.next();
-        }
-
-        let mut has_digit = false;
-        let mut has_decimal = false;
-        for c in chars {
-            if c.is_ascii_digit() {
-                has_digit = true;
-            } else if c == ',' {
-                continue;
-            } else if c == '.' {
-                if has_decimal {
-                    return false;
-                }
-                has_decimal = true;
-            } else if c == '%' {
-                return has_digit && trimmed.ends_with('%');
-            } else {
-                return false;
-            }
-        }
-
-        has_digit
-    }
-
     for line in lines.iter_mut() {
         let mut merged_line: Vec<ProjectedTextItem> = Vec::with_capacity(line.len());
         for item in line.drain(..) {
             if let Some(prev) = merged_line.last_mut() {
                 let both_are_numbers = looks_like_table_number(&prev.item.text)
                     && looks_like_table_number(&item.item.text);
+                let number_and_hebrew = (looks_like_table_number(&prev.item.text)
+                    && contains_hebrew(&item.item.text))
+                    || (contains_hebrew(&prev.item.text)
+                        && looks_like_table_number(&item.item.text));
 
                 let delta_x = item.item.x - prev.item.x - prev.item.width;
                 // Don't merge items with noticeably different y positions (>1.5px).
@@ -629,7 +604,11 @@ fn form_lines(
                 let y_diff = (item.item.y - prev.item.y).abs();
                 let y_compatible = y_diff <= 1.5;
 
-                if y_compatible && !both_are_numbers && delta_x <= MERGE_THRESHOLD {
+                if y_compatible
+                    && !both_are_numbers
+                    && !number_and_hebrew
+                    && delta_x <= MERGE_THRESHOLD
+                {
                     prev.item.width = item.item.x + item.item.width - prev.item.x;
                     prev.item.text.push_str(&item.item.text);
                     continue;
@@ -637,7 +616,11 @@ fn form_lines(
 
                 let prev_len = prev.item.text.chars().count().max(1) as f32;
                 let avg_char_width = prev.item.width / prev_len;
-                if y_compatible && !both_are_numbers && delta_x < avg_char_width {
+                if y_compatible
+                    && !both_are_numbers
+                    && !number_and_hebrew
+                    && delta_x < avg_char_width
+                {
                     prev.item.width = item.item.x + item.item.width - prev.item.x;
                     if !prev.item.text.ends_with(' ') {
                         prev.item.text.push(' ');
@@ -889,28 +872,187 @@ fn update_forward_anchor_right_bound(
     }
 }
 
-fn compress_wide_spaces(line: &str, min_run: usize, replace_with: usize) -> String {
-    let mut out = String::with_capacity(line.len());
-    let bytes = line.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == b' ' {
-            let start = i;
-            while i < bytes.len() && bytes[i] == b' ' {
-                i += 1;
+fn contains_hebrew(text: &str) -> bool {
+    text.chars().any(|c| ('\u{0590}'..='\u{05ff}').contains(&c))
+}
+
+fn looks_like_table_number(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.chars().count() < 2 {
+        return false;
+    }
+
+    let mut chars = trimmed.chars().peekable();
+    if matches!(chars.peek(), Some('$' | '₪')) {
+        chars.next();
+    }
+    if matches!(chars.peek(), Some('-')) {
+        chars.next();
+    }
+
+    let mut has_digit = false;
+    let mut has_decimal = false;
+    for c in chars {
+        if c.is_ascii_digit() {
+            has_digit = true;
+        } else if c == ',' {
+            continue;
+        } else if c == '.' {
+            if has_decimal {
+                return false;
             }
-            let run_len = i - start;
-            if run_len >= min_run {
-                out.push_str(&" ".repeat(replace_with));
-            } else {
-                out.push_str(&" ".repeat(run_len));
-            }
+            has_decimal = true;
+        } else if c == '%' {
+            return has_digit && trimmed.ends_with('%');
         } else {
-            out.push(bytes[i] as char);
-            i += 1;
+            return false;
         }
     }
+
+    has_digit
+}
+
+fn split_embedded_hebrew_table_amounts(items: Vec<ProjectedTextItem>) -> Vec<ProjectedTextItem> {
+    let mut split_items = Vec::with_capacity(items.len());
+
+    for item in items {
+        let text = item.item.text.trim();
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        let Some(amount) = parts.last() else {
+            split_items.push(item);
+            continue;
+        };
+        if parts.len() < 2 || !looks_like_table_number(amount) {
+            split_items.push(item);
+            continue;
+        }
+
+        let label = parts[..parts.len() - 1].join(" ");
+        if !contains_hebrew(&label) {
+            split_items.push(item);
+            continue;
+        }
+
+        let label_len = label.chars().count().max(1) as f32;
+        let amount_len = amount.chars().count().max(1) as f32;
+        let total_len = label_len + amount_len;
+        let amount_width = item.item.width * amount_len / total_len;
+        let label_width = item.item.width - amount_width;
+
+        let mut amount_item = item.clone();
+        amount_item.item.text = (*amount).to_string();
+        amount_item.item.width = amount_width;
+
+        let mut label_item = item;
+        label_item.item.text = label;
+        label_item.item.x = amount_item.item.x + amount_width;
+        label_item.item.width = label_width;
+
+        split_items.push(amount_item);
+        split_items.push(label_item);
+    }
+
+    split_items
+}
+
+fn compress_wide_spaces(line: &str, min_run: usize, replace_with: usize) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut space_run = 0usize;
+
+    let flush_spaces = |out: &mut String, run_len: usize| {
+        if run_len >= min_run {
+            out.push_str(&" ".repeat(replace_with));
+        } else {
+            out.push_str(&" ".repeat(run_len));
+        }
+    };
+
+    for c in line.chars() {
+        if c == ' ' {
+            space_run += 1;
+        } else {
+            flush_spaces(&mut out, space_run);
+            space_run = 0;
+            out.push(c);
+        }
+    }
+
+    flush_spaces(&mut out, space_run);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compress_wide_spaces_preserves_hebrew_text() {
+        let line = "יוחננוף    רגילה";
+
+        let compressed = compress_wide_spaces(line, 4, 2);
+
+        assert_eq!(compressed, "יוחננוף  רגילה");
+    }
+
+    #[test]
+    fn projection_keeps_adjacent_hebrew_and_amount_separate() {
+        let page = Page {
+            page_number: 1,
+            page_width: 300.0,
+            page_height: 100.0,
+            text_items: vec![
+                TextItem {
+                    text: "521.02".into(),
+                    x: 10.0,
+                    y: 10.0,
+                    width: 36.0,
+                    height: 10.0,
+                    ..Default::default()
+                },
+                TextItem {
+                    text: "רגילה".into(),
+                    x: 48.0,
+                    y: 10.0,
+                    width: 30.0,
+                    height: 10.0,
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let projected = project_pages_to_grid(vec![page]);
+        let items = &projected[0].text_items;
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "521.02");
+        assert_eq!(items[1].text, "רגילה");
+    }
+
+    #[test]
+    fn projection_splits_embedded_hebrew_table_amount() {
+        let page = Page {
+            page_number: 1,
+            page_width: 300.0,
+            page_height: 100.0,
+            text_items: vec![TextItem {
+                text: "רגילה 521.02".into(),
+                x: 10.0,
+                y: 10.0,
+                width: 70.0,
+                height: 10.0,
+                ..Default::default()
+            }],
+        };
+
+        let projected = project_pages_to_grid(vec![page]);
+        let item_texts: Vec<&str> = projected[0]
+            .text_items
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect();
+
+        assert_eq!(item_texts, vec!["521.02", "רגילה"]);
+    }
 }
 
 fn fix_sparse_blocks(raw_lines: &mut [String], start: usize, end: usize) {
@@ -2650,6 +2792,7 @@ pub fn project_pages_to_grid(pages: Vec<Page>) -> Vec<ParsedPage> {
                     d: 0.0,
                 })
                 .collect();
+            let projection_boxes = split_embedded_hebrew_table_amounts(projection_boxes);
 
             let (projected_items, text) = project_to_grid(&page, projection_boxes);
             ParsedPage {
