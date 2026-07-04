@@ -1,0 +1,149 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:13"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:33"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "rust"
+
+  - package-ecosystem: "uv"
+    directory: "/dataset_eval_utils"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:53"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      dataset-eval-python:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "uv"
+    directory: "/ocr/easyocr"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:13"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      easyocr-python:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "uv"
+    directory: "/packages/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:33"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      python-package:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/node"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:53"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      node-package:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/wasm"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:13"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      wasm-package:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:33"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/ocr/easyocr"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:53"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/ocr/paddleocr"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:13"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
