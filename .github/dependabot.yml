@@ -8,6 +8,8 @@ updates:
       time: "04:13"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
@@ -24,6 +26,8 @@ updates:
       time: "04:33"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       rust-dependencies:
         patterns:
@@ -40,6 +44,8 @@ updates:
       time: "04:53"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       dataset-eval-python:
         patterns:
@@ -56,6 +62,8 @@ updates:
       time: "05:13"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       easyocr-python:
         patterns:
@@ -72,6 +80,8 @@ updates:
       time: "05:33"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       python-package:
         patterns:
@@ -88,6 +98,8 @@ updates:
       time: "05:53"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       node-package:
         patterns:
@@ -104,6 +116,8 @@ updates:
       time: "06:13"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       wasm-package:
         patterns:
@@ -120,6 +134,12 @@ updates:
       time: "06:33"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    groups:
+      root-docker:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "docker"
@@ -132,6 +152,12 @@ updates:
       time: "06:53"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    groups:
+      easyocr-docker:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "docker"
@@ -144,6 +170,12 @@ updates:
       time: "07:13"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    groups:
+      paddleocr-docker:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "docker"
