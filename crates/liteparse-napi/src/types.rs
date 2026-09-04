@@ -343,6 +343,16 @@ pub struct JsWordBox {
 }
 
 impl JsWordBox {
+    fn to_rust(&self) -> WordBox {
+        WordBox {
+            text: self.text.clone(),
+            x: self.x as f32,
+            y: self.y as f32,
+            width: self.width as f32,
+            height: self.height as f32,
+        }
+    }
+
     pub fn from_rust(word: &WordBox) -> Self {
         Self {
             text: word.text.clone(),
@@ -411,6 +421,7 @@ impl JsTextItem {
             char_codes: self.char_codes.clone().unwrap_or_default(),
             trailing_space_generated: self.trailing_space_generated.unwrap_or(false),
             confidence: self.confidence.map(|v| v as f32),
+            words: self.words.iter().map(JsWordBox::to_rust).collect(),
             ..Default::default()
         }
     }
@@ -1352,6 +1363,13 @@ mod tests {
             stroke_color: Some("ff445566".into()),
             char_codes: vec![65, 32],
             trailing_space_generated: true,
+            words: vec![WordBox {
+                text: "A".into(),
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+            }],
             ..Default::default()
         };
 
@@ -1377,6 +1395,12 @@ mod tests {
         assert_eq!(round_trip.stroke_color.as_deref(), Some("ff445566"));
         assert_eq!(round_trip.char_codes, vec![65, 32]);
         assert!(round_trip.trailing_space_generated);
+        assert_eq!(round_trip.words.len(), 1);
+        assert_eq!(round_trip.words[0].text, "A");
+        assert_eq!(round_trip.words[0].x, 1.0);
+        assert_eq!(round_trip.words[0].y, 2.0);
+        assert_eq!(round_trip.words[0].width, 3.0);
+        assert_eq!(round_trip.words[0].height, 4.0);
     }
 
     #[test]

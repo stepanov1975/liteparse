@@ -801,16 +801,16 @@ pub(crate) async fn ocr_and_merge_rendered(
     // from incidental per-page failures. Without this, every page logs the same
     // error and `parse()` still returns "success" with no OCR text.
     //
-    // We additionally track whether any *sparse-text* page failed: a page is
-    // rendered for OCR if it has sparse native text OR merely contains an image
-    // (`needs_ocr = text_length < 20 || text_coverage < 0.15 || has_images`).
-    // A native-text PDF with a logo on every page is rendered for OCR
-    // enrichment but already has all its text. We must only fail loud when OCR
-    // failure destroyed a sparse page's likely primary text source — otherwise
-    // a broken OCR setup would abort perfectly good native-text documents.
+    // We additionally track whether any page that depends on OCR for usable
+    // text failed. A page is rendered for OCR if it has sparse native text,
+    // garbled native text, or merely contains an image. A native-text PDF with
+    // a logo on every page is rendered for OCR enrichment but already has all
+    // its text. We must only fail loud when OCR failure destroyed a page's
+    // likely primary usable text source — otherwise a broken OCR setup would
+    // abort perfectly good native-text documents.
     let total_tasks = task_results.len();
     let mut failed_tasks = 0usize;
-    let mut failed_sparse_text_page = false;
+    let mut failed_primary_text_page = false;
     let mut first_error: Option<String> = None;
 
     for (idx, page_number, page_dpi, result) in task_results {
@@ -818,7 +818,7 @@ pub(crate) async fn ocr_and_merge_rendered(
             Ok(results) => results,
             Err(e) => {
                 failed_tasks += 1;
-                failed_sparse_text_page |= page_has_sparse_native_text(&pages[idx]);
+                failed_primary_text_page |= page_depends_on_ocr_text(&pages[idx]);
                 if first_error.is_none() {
                     let msg = e.to_string();
                     eprintln!("[ocr] failed for page {}: {}", page_number, msg);
@@ -939,15 +939,14 @@ pub(crate) async fn ocr_and_merge_rendered(
     }
 
     // If every OCR task failed *and* at least one of those failures was on a
-    // sparse-text page (the same length/coverage predicate that sends pages to
-    // OCR as text-poor in `render_pages_for_ocr`), treat it as a systemic
-    // failure. Returning an error surfaces the root cause (e.g. missing language
-    // data) instead of silently emitting an empty or mostly-empty page. We
-    // deliberately do NOT fail when the only failures were on pages that already
-    // had substantial native text and were merely rendered for image-based OCR
-    // enrichment — a broken OCR setup must not abort an otherwise-good
-    // native-text document.
-    if total_tasks > 0 && failed_tasks == total_tasks && failed_sparse_text_page {
+    // page that depends on OCR for usable text (the same sparse/garbled
+    // predicates that send pages to OCR), treat it as a systemic failure.
+    // Returning an error surfaces the root cause (e.g. missing language data)
+    // instead of silently emitting an empty or unusable page. We deliberately
+    // do NOT fail when the only failures were on pages that already had
+    // substantial trustworthy native text and were merely rendered for
+    // image-based OCR enrichment.
+    if total_tasks > 0 && failed_tasks == total_tasks && failed_primary_text_page {
         let detail = first_error.unwrap_or_else(|| "unknown error".to_string());
         if ocr_failure_fatal {
             return Err(LiteParseError::Ocr(format!(
@@ -975,12 +974,11 @@ pub(crate) async fn ocr_and_merge_rendered(
     Ok(())
 }
 
-/// True when the page's native (already-extracted) text is sparse enough that
-/// OCR is likely its primary text source. Mirrors the non-image predicates in
-/// `render_pages_for_ocr` (`text_length < 20 || text_coverage < 0.15`) so the
-/// systemic-failure guard matches the same pages that were rendered because
-/// their native text was insufficient.
-fn page_has_sparse_native_text(page: &Page) -> bool {
+/// True when OCR is likely the page's primary usable text source. Mirrors the
+/// non-image predicates in `render_pages_for_ocr` so the systemic-failure guard
+/// covers both sparse native text and native text rejected as page-level
+/// garbling.
+fn page_depends_on_ocr_text(page: &Page) -> bool {
     let text_length: usize = page
         .text_items
         .iter()
@@ -1000,7 +998,7 @@ fn page_has_sparse_native_text(page: &Page) -> bool {
         0.0
     };
 
-    text_length < 20 || text_coverage < 0.15
+    text_length < 20 || text_coverage < 0.15 || page_is_garbled(page)
 }
 
 /// A native text item that cannot be trusted as a text source: either its
@@ -1809,6 +1807,24 @@ mod tests {
         }
     }
 
+    // Each run is too short for the per-item garbling heuristic, while the
+    // aggregate page is clearly garbled. The large boxes make the native text
+    // non-sparse so only the page-level garbling reason makes OCR essential.
+    fn make_aggregate_garbled_page(page_number: usize) -> Page {
+        let mut page = make_blank_page(page_number);
+        page.text_items = (0..6)
+            .map(|row| TextItem {
+                text: "bcdfghjk".into(),
+                x: 0.0,
+                y: row as f32 * 15.0,
+                width: 100.0,
+                height: 15.0,
+                ..Default::default()
+            })
+            .collect();
+        page
+    }
+
     // When every OCR task fails (e.g. missing language data), the function must
     // return an error instead of silently reporting success with no OCR text.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1893,6 +1909,28 @@ mod tests {
         let result = ocr_and_merge_rendered(&mut pages, rendered, engine, "eng", 2, true).await;
 
         let err = result.expect_err("low-coverage text page losing OCR must surface an error");
+        assert!(
+            err.to_string().contains("OCR failed for all 1 page(s)"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_page_level_garbling_failure_returns_error() {
+        let mut pages = vec![make_aggregate_garbled_page(1)];
+        assert!(page_is_garbled(&pages[0]));
+        assert!(
+            pages[0]
+                .text_items
+                .iter()
+                .all(|item| !is_unusable_native(item))
+        );
+
+        let rendered = vec![make_rendered(0)];
+        let engine: Arc<dyn OcrEngine> = Arc::new(FailingEngine);
+        let result = ocr_and_merge_rendered(&mut pages, rendered, engine, "eng", 2, true).await;
+
+        let err = result.expect_err("garbled page losing OCR must surface an error");
         assert!(
             err.to_string().contains("OCR failed for all 1 page(s)"),
             "unexpected error message: {err}"

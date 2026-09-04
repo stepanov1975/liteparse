@@ -378,6 +378,7 @@ jobs:
             cp "$ARTIFACT_DIR"/*.node "$PKG_DIR/" 2>/dev/null || true
             cp "$ARTIFACT_DIR"/*.dylib "$PKG_DIR/" 2>/dev/null || true
             cp "$ARTIFACT_DIR"/*.so "$PKG_DIR/" 2>/dev/null || true
+            cp "$ARTIFACT_DIR"/*.so.* "$PKG_DIR/" 2>/dev/null || true
             cp "$ARTIFACT_DIR"/*.dll "$PKG_DIR/" 2>/dev/null || true
 
             LIBC=""
@@ -406,7 +407,7 @@ jobs:
             "cpu": ["${CPU}"],
             ${LIBC_LINE}
             "main": "liteparse.${ARCH}.node",
-            "files": ["*.node", "*.dylib", "*.so", "*.dll"],
+            "files": ["*.node", "*.dylib", "*.so", "*.so.*", "*.dll"],
             "license": "Apache-2.0",
             "repository": {
               "type": "git",
