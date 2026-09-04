@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   SKIP_INTEGRATION_TESTS: yes
@@ -40,7 +43,7 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, macos-26-intel, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +67,7 @@ jobs:
             ~/Library/Caches/pdfium-rs
             ${{ runner.os == 'Windows' && format('{0}\pdfium-rs', env.LOCALAPPDATA) || '' }}
             target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Force Ninja generator (Windows)
         if: runner.os == 'Windows'
@@ -79,6 +82,27 @@ jobs:
         run: |
           ./target/debug/lit --version
           ./target/debug/lit parse demo/docs/apple-10k-2024.pdf --no-ocr --max-pages 1 -q | head -5
+
+      - name: OCR smoke test (runtime tessdata download)
+        shell: bash
+        run: |
+          # Wipe any tessdata that tesseract-rs/build.rs downloaded during
+          # `cargo build`, so the parse exercises the runtime first-use
+          # download path (the code path that npm/pip prebuilt users hit).
+          rm -rf "$HOME/Library/Application Support/tesseract-rs" \
+                 "$HOME/.tesseract-rs" \
+                 "${APPDATA:-}/tesseract-rs" 2>/dev/null || true
+
+          LIT=./target/debug/lit
+          [ -f "$LIT.exe" ] && LIT="$LIT.exe"
+          "$LIT" parse demo/docs/long_tiny_text.pdf --max-pages 1 -q -o ocr-out.txt
+
+          # If OCR ran, page 1 has substantial text beyond just the
+          # "--- Page 1 ---" header (~16 bytes). A tessdata-load failure
+          # surfaces as systemic OCR failure and an empty/tiny output.
+          size=$(wc -c < ocr-out.txt)
+          echo "OCR output size: $size bytes"
+          test "$size" -gt 200
 
   # Test that docker builds
   build-docker-image:

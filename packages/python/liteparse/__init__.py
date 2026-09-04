@@ -1,21 +1,68 @@
+from importlib.metadata import PackageNotFoundError, version
+
 from .parser import LiteParse, search_items
 from .types import (
+    AnnotationRect,
+    DocumentAnnotation,
+    LayoutBlock,
+    LayoutCell,
+    FormField,
+    StructureTree,
+    StructureTreeElement,
+    ExtractedImage,
+    ImageRect,
+    LayoutComplexityStats,
     LiteParseConfig,
+    PageComplexityStats,
+    PageError,
     ParseResult,
+    ParseBatch,
+    DocumentMetadata,
+    XfaPacket,
     ParsedPage,
     TextItem,
+    WordBox,
+    ScreenshotRect,
     ScreenshotResult,
     ParseError,
+    ParseTimeoutError,
+    VectorGraphics,
+    VectorLine,
+    VectorShape,
 )
 
-__version__ = "2.0.0"
+try:
+    __version__ = version("liteparse")
+except PackageNotFoundError:  # source tree without installed dist metadata
+    __version__ = "0.0.0+unknown"
 __all__ = [
     "LiteParse",
+    "AnnotationRect",
+    "DocumentAnnotation",
+    "LayoutBlock",
+    "LayoutCell",
+    "FormField",
+    "StructureTree",
+    "StructureTreeElement",
     "LiteParseConfig",
     "ParseResult",
+    "PageError",
+    "ParseBatch",
+    "DocumentMetadata",
+    "XfaPacket",
     "ParsedPage",
     "TextItem",
+    "WordBox",
+    "ScreenshotRect",
     "ScreenshotResult",
+    "PageComplexityStats",
+    "LayoutComplexityStats",
+    "ExtractedImage",
+    "ImageRect",
     "ParseError",
+    "ParseTimeoutError",
     "search_items",
+    "VectorGraphics",
+    "VectorLine",
+    "VectorShape",
 ]

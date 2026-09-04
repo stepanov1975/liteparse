@@ -31,6 +31,29 @@ console.log(result.text);          // full document text
 console.log(result.pages[0]);      // per-page items with bboxes
 ```
 
+## Document complexity
+
+Before committing to a full parse, check whether a document needs OCR or heavier
+processing. `isComplex` is a cheap, text-layer-only pass that returns one entry per page
+with a `needsOcr` verdict and the signals behind it — useful for routing documents or
+deciding whether the JS-side OCR engine is worth wiring up.
+
+```ts
+const parser = new LiteParse({ ocrEnabled: false });
+const bytes = new Uint8Array(await file.arrayBuffer());
+const pages = await parser.isComplex(bytes);
+
+if (pages.some((p) => p.needsOcr)) {
+  // This document would benefit from OCR — see "OCR in the browser" below
+  for (const page of pages.filter((p) => p.needsOcr)) {
+    console.log(`Page ${page.pageNumber}: ${page.reasons.join(", ")}`);
+  }
+}
+```
+
+`reasons` is one of `"scanned"`, `"no-text"`, `"sparse-text"`, `"embedded-images"`,
+`"garbled"`, `"vector-text"`, or `"annotation-text"`.
+
 ## Config options
 
 All optional, camelCase:
@@ -41,8 +64,14 @@ All optional, camelCase:
 | `ocrEnabled` | `boolean` | `true` | Run OCR on text-sparse pages |
 | `maxPages` | `number` | `1000` | Stop after this many pages |
 | `targetPages` | `string` | — | e.g. `"1-5,10,15-20"` |
+| `extractScreenshots` | `boolean` | `false` | Return parsed pages as PNG bytes on `result.screenshots` |
 | `dpi` | `number` | `150` | Render DPI for OCR / screenshots |
-| `outputFormat` | `"json" \| "text"` | `"json"` | Format used by `parser.format(...)` |
+| `outputFormat` | `"json" \| "text" \| "markdown"` | `"json"` | Output format; `"markdown"` returns rendered Markdown on `result.text` |
+| `imageMode` | `"off" \| "placeholder" \| "embed"` | `"placeholder"` | How raster images are surfaced in markdown output |
+| `extractLinks` | `boolean` | `true` | Render hyperlink annotations as `[text](url)` in markdown output |
+| `extractVectorGraphics` | `boolean` | `false` | Include page-scoped shapes and merged horizontal/vertical lines |
+| `extractAnnotations` | `boolean` | `false` | Include page annotations and their metadata/geometry in structured output |
+| `extractStructureTree` | `boolean` | `false` | Include the tagged-PDF logical structure tree |
 | `preserveVerySmallText` | `boolean` | `false` | Keep tiny text that's normally filtered |
 | `password` | `string` | — | Password for protected PDFs |
 | `quiet` | `boolean` | `false` | Suppress progress logging |
@@ -86,8 +115,6 @@ npm run build:nodejs    # for node.js
 ```
 
 Output goes to `pkg/`.
-
-> **Note:** A real build also needs a static `libpdfium.a` compiled for `wasm32-unknown-emscripten`/`wasm32-unknown-unknown` exposed via `PDFIUM_LIB_PATH`. See the project root `crates/WASM_PLAN.md` for details.
 
 ## License
 

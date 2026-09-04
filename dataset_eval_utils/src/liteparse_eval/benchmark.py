@@ -16,6 +16,7 @@ from liteparse_eval.providers import (
     LiteparseProvider,
     MarkItDownProvider,
     OpenDataLoaderProvider,
+    PdfInspectorProvider,
     PdfToTextProvider,
     PyMuPDFProvider,
     PyMuPDF4LLMMarkdownProvider,
@@ -32,6 +33,7 @@ ALL_PROVIDERS = [
     "pymupdf4llm-text",
     "pymupdf4llm-md",
     "opendataloader",
+    "pdf-inspector",
 ]
 
 PROVIDER_MAP = {
@@ -43,12 +45,23 @@ PROVIDER_MAP = {
     "pymupdf4llm-text": PyMuPDF4LLMTextProvider,
     "pymupdf4llm-md": PyMuPDF4LLMMarkdownProvider,
     "opendataloader": OpenDataLoaderProvider,
+    "pdf-inspector": PdfInspectorProvider,
 }
 
 
 def find_pdfs(directory: Path) -> list[Path]:
     """Find all PDF files in a directory (non-recursive)."""
     return sorted(directory.glob("*.pdf"))
+
+
+def count_pages(file_path: Path) -> Optional[int]:
+    """Return the page count of a PDF, or None if it can't be read."""
+    try:
+        import pypdf
+
+        return len(pypdf.PdfReader(str(file_path)).pages)
+    except Exception:
+        return None
 
 
 def time_extraction(provider: ParserProvider, file_path: Path) -> tuple[float, int]:
@@ -64,10 +77,20 @@ def format_table(
     doc_names: list[str],
     # results[provider_name][doc_name] = (seconds, chars) | None (error)
     results: dict[str, dict[str, tuple[float, int] | None]],
+    page_counts: dict[str, Optional[int]] | None = None,
 ) -> str:
     """Build a formatted table string."""
+    page_counts = page_counts or {}
+
+    # Annotate each document with its page count, e.g. "457_pages.pdf (457p)".
+    def doc_label(doc: str) -> str:
+        pages = page_counts.get(doc)
+        return f"{doc} ({pages}p)" if pages else doc
+
+    labels = {doc: doc_label(doc) for doc in doc_names}
+
     # Column widths
-    doc_col_w = max(len("Document"), *(len(n) for n in doc_names)) + 2
+    doc_col_w = max(len("Document"), *(len(labels[d]) for d in doc_names)) + 2
     prov_col_w = 14
 
     # Header
@@ -80,7 +103,7 @@ def format_table(
 
     # Per-document rows
     for doc in doc_names:
-        row = f"{doc:<{doc_col_w}}"
+        row = f"{labels[doc]:<{doc_col_w}}"
         for p in providers:
             entry = results[p].get(doc)
             if entry is None:
@@ -108,7 +131,7 @@ def format_table(
     lines.append(row)
 
     # Average row
-    row = f"{'AVG':<{doc_col_w}}"
+    row = f"{'AVG/doc':<{doc_col_w}}"
     for p in providers:
         times = [results[p][d][0] for d in doc_names if results[p].get(d) is not None]
         if times:
@@ -118,6 +141,23 @@ def format_table(
             cell = "N/A"
         row += f"  {cell:>{prov_col_w}}"
     lines.append(row)
+
+    # Per-page row (aggregate: total time over successfully-parsed pages).
+    total_known_pages = sum(p for p in page_counts.values() if p)
+    if total_known_pages:
+        row = f"{'MS/PAGE':<{doc_col_w}}"
+        for p in providers:
+            secs = 0.0
+            pages = 0
+            for doc in doc_names:
+                entry = results[p].get(doc)
+                pc = page_counts.get(doc)
+                if entry is not None and pc:
+                    secs += entry[0]
+                    pages += pc
+            cell = f"{secs / pages * 1000:.2f}ms" if pages else "N/A"
+            row += f"  {cell:>{prov_col_w}}"
+        lines.append(row)
 
     lines.append(sep)
     return "\n".join(lines)
@@ -140,8 +180,10 @@ def run_benchmark(
         return {}
 
     doc_names = [f.name for f in pdf_files]
+    page_counts = {f.name: count_pages(f) for f in pdf_files}
+    total_pages = sum(p for p in page_counts.values() if p)
 
-    print(f"Found {len(pdf_files)} documents in {input_dir}")
+    print(f"Found {len(pdf_files)} documents ({total_pages} pages) in {input_dir}")
     print(f"Providers: {', '.join(providers)}")
     print()
 
@@ -181,13 +223,15 @@ def run_benchmark(
         print()
 
     # Print table
-    table = format_table(providers, doc_names, results)
+    table = format_table(providers, doc_names, results, page_counts)
     print(table)
 
     # Build JSON output
     output = {
         "input_dir": str(input_dir),
         "documents": doc_names,
+        "page_counts": page_counts,
+        "total_pages": total_pages,
         "providers": {},
     }
     for p in providers:
@@ -197,15 +241,31 @@ def run_benchmark(
             if entry is None:
                 provider_results[doc] = {"error": True}
             else:
+                pc = page_counts.get(doc)
                 provider_results[doc] = {
                     "seconds": round(entry[0], 4),
                     "text_length": entry[1],
+                    "ms_per_page": round(entry[0] / pc * 1000, 3) if pc else None,
                 }
         times = [results[p][d][0] for d in doc_names if results[p].get(d) is not None]
+        # Aggregate ms/page over successfully-parsed pages only.
+        parsed_secs = sum(
+            results[p][d][0]
+            for d in doc_names
+            if results[p].get(d) is not None and page_counts.get(d)
+        )
+        parsed_pages = sum(
+            page_counts[d]
+            for d in doc_names
+            if results[p].get(d) is not None and page_counts.get(d)
+        )
         output["providers"][p] = {
             "per_document": provider_results,
             "total_seconds": round(sum(times), 4) if times else None,
             "avg_seconds": round(sum(times) / len(times), 4) if times else None,
+            "ms_per_page": round(parsed_secs / parsed_pages * 1000, 3)
+            if parsed_pages
+            else None,
             "num_success": len(times),
             "num_error": len(doc_names) - len(times),
         }

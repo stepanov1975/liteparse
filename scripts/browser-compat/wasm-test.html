@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>LiteParse WASM Browser Test</title>
+  <link rel="icon" href="data:," />
 </head>
 <body>
   <div id="status">loading</div>
@@ -13,6 +14,32 @@
     const status = document.getElementById("status");
     const resultEl = document.getElementById("result");
     const errorEl = document.getElementById("error");
+
+    function buildBlankPdf() {
+      const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Resources << >> /Contents 4 0 R >>",
+        "<< /Length 0 >>\nstream\n\nendstream",
+      ];
+
+      let pdf = "%PDF-1.4\n%1234\n";
+      const offsets = [0];
+      for (let index = 0; index < objects.length; index += 1) {
+        offsets.push(pdf.length);
+        pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+      }
+
+      const xrefOffset = pdf.length;
+      pdf += `xref\n0 ${objects.length + 1}\n`;
+      pdf += "0000000000 65535 f \n";
+      for (const offset of offsets.slice(1)) {
+        pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+      }
+      pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+      pdf += `startxref\n${xrefOffset}\n%%EOF\n`;
+      return new TextEncoder().encode(pdf);
+    }
 
     try {
       status.textContent = "loading wasm";
@@ -37,11 +64,60 @@
       if (pageCount === 0) throw new Error("No pages parsed");
       if (!hasText) throw new Error(`Text too short: ${textLength} chars`);
 
+      status.textContent = "testing OCR callback";
+      let ocrCallbackCalls = 0;
+      let ocrByteLength = 0;
+      const ocrParser = new LiteParse({
+        ocrEnabled: true,
+        ocrLanguage: "eng",
+        outputFormat: "text",
+        dpi: 72,
+        quiet: true,
+        ocrEngine: {
+          async recognize(imageData, width, height, language) {
+            ocrCallbackCalls += 1;
+            if (!(imageData instanceof Uint8Array)) {
+              throw new Error("OCR input is not a Uint8Array");
+            }
+            if (imageData.length === 0) {
+              throw new Error("OCR input is empty");
+            }
+            const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+            if (!pngSignature.every((byte, index) => imageData[index] === byte)) {
+              throw new Error("OCR input is not PNG-encoded");
+            }
+            if (width <= 0 || height <= 0) {
+              throw new Error(`Invalid OCR dimensions: ${width}x${height}`);
+            }
+            if (language !== "eng") {
+              throw new Error(`Unexpected OCR language: ${language}`);
+            }
+
+            ocrByteLength = imageData.length;
+            return [{
+              text: "WASM_OCR_CALLBACK_OK",
+              bbox: [4, 4, Math.max(8, width - 4), Math.min(24, height - 4)],
+              confidence: 0.99,
+            }];
+          },
+        },
+      });
+      const ocrResult = await ocrParser.parse(buildBlankPdf());
+
+      if (ocrCallbackCalls !== 1) {
+        throw new Error(`Expected one OCR callback, received ${ocrCallbackCalls}`);
+      }
+      if (!ocrResult.text.includes("WASM_OCR_CALLBACK_OK")) {
+        throw new Error("OCR callback text was not merged into the parse result");
+      }
+
       status.textContent = "done";
       resultEl.style.display = "block";
       resultEl.setAttribute("data-pages", pageCount);
       resultEl.setAttribute("data-text-length", textLength);
-      resultEl.textContent = `OK: ${pageCount} pages, ${textLength} chars`;
+      resultEl.setAttribute("data-ocr-callbacks", ocrCallbackCalls);
+      resultEl.setAttribute("data-ocr-bytes", ocrByteLength);
+      resultEl.textContent = `OK: ${pageCount} pages, ${textLength} chars, OCR callback passed`;
     } catch (err) {
       status.textContent = "error";
       errorEl.style.display = "block";

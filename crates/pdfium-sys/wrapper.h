@@ -5,3 +5,5 @@
 #include "fpdf_annot.h"
 #include "fpdf_structtree.h"
 #include "fpdf_transformpage.h"
+#include "fpdf_signature.h"
+#include "fpdf_flatten.h"

@@ -18,8 +18,22 @@ mod tests {
             page_number: n,
             page_width: 0.0,
             page_height: 0.0,
+            content_bounds: None,
             text: text.into(),
+            markdown: String::new(),
             text_items: vec![],
+            projected_lines: vec![],
+            regions: crate::types::Region::default(),
+            graphics: vec![],
+            vector_graphics: None,
+            figures: vec![],
+            struct_nodes: vec![],
+            image_refs: vec![],
+            complexity: None,
+            annotations: None,
+            form_fields: None,
+            structure_tree: None,
+            blocks: None,
         }
     }
 
