@@ -2186,7 +2186,7 @@ pub(crate) fn is_buggy_font(font_name: &str, font_type: FontType) -> bool {
 /// are emitted by a common class of subset fonts that mangle ToUnicode into
 /// the 0x80-0x9F range.
 pub(crate) fn is_buggy_codepoint(unicode: u32) -> bool {
-    unicode <= 0x1F || (0x7F..=0x9F).contains(&unicode) || (unicode > 0xE000 && unicode <= 0xF8FF)
+    unicode <= 0x1F || (0x7F..=0x9F).contains(&unicode) || (0xE000..=0xF8FF).contains(&unicode)
 }
 
 fn color_to_argb_hex(c: &pdfium::Color) -> String {
@@ -4039,7 +4039,7 @@ mod tests {
         assert!(!is_buggy_codepoint(0x20));
         assert!(is_buggy_codepoint(0xE001));
         assert!(is_buggy_codepoint(0xF8FF));
-        assert!(!is_buggy_codepoint(0xE000));
+        assert!(is_buggy_codepoint(0xE000));
         assert!(!is_buggy_codepoint(0xF900));
         // DEL + C1 controls (0x7F-0x9F): mangled-ToUnicode signature.
         assert!(is_buggy_codepoint(0x7F));

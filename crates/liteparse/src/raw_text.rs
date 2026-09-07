@@ -197,10 +197,10 @@ fn load_glyph(
 }
 
 /// Convert PDFium's reported glyph angle into the raw-text convention.
-/// PDFium returns a negative value on read failure; match the regular extractor
-/// by treating that error as an unrotated glyph without applying page rotation.
+/// PDFium returns exactly `-1` on read failure; match the regular extractor by
+/// treating that sentinel as an unrotated glyph without applying page rotation.
 fn normalize_reported_angle(angle_radians: f32, page_rotation: i32) -> f32 {
-    if angle_radians < 0.0 {
+    if angle_radians == -1.0 {
         0.0
     } else {
         normalize_angle(angle_radians, page_rotation)
@@ -434,6 +434,7 @@ mod tests {
         assert!(close(normalize_angle(-0.5, 0), 2.0 * PI - 0.5));
         assert!(close(normalize_angle(2.0 * PI + 0.25, 0), 0.25));
         assert!(close(normalize_reported_angle(-1.0, 0), 0.0));
+        assert!(close(normalize_reported_angle(-0.5, 0), 2.0 * PI - 0.5));
         assert!(close(normalize_reported_angle(0.0, 1), PI / 2.0));
     }
 
