@@ -4,15 +4,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'crates/**'
-      - 'packages/python/**'
-      - '.github/workflows/ci-python.yml'
+      - "crates/**"
+      - "packages/python/**"
+      - ".github/workflows/ci-python.yml"
   pull_request:
     branches: [main]
     paths:
-      - 'crates/**'
-      - 'packages/python/**'
-      - '.github/workflows/ci-python.yml'
+      - "crates/**"
+      - "packages/python/**"
+      - ".github/workflows/ci-python.yml"
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,14 +29,24 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
 
+          - os: macos-26-intel
+            target: x86_64-apple-darwin
+
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
 
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
 
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
     name: Build ${{ matrix.target }}
@@ -43,14 +56,14 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.musl
         run: |
           sudo apt-get update
           sudo apt-get install -y libtesseract-dev libleptonica-dev
@@ -74,7 +87,8 @@ jobs:
             target
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-python-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build wheels
+      - name: Build wheels (glibc)
+        if: ${{ !matrix.musl }}
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -90,8 +104,28 @@ jobs:
               apk add tesseract-ocr-dev leptonica-dev openssl-dev pkgconf || true
             fi
 
+      - name: Build wheels (musl container)
+        if: ${{ matrix.musl }}
+        # Same pattern as the node musl build: run inside a vanilla
+        # python:3-alpine with clang+libc++ from apk. Bypasses maturin-action's
+        # musllinux_1_2 cross image, which causes FORTIFY_SOURCE issues with
+        # tesseract's C++ build and broken host-openssl for build-deps.
+        run: |
+          chmod +x scripts/build-musl-py.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -v "$HOME/.cargo/registry":/root/.cargo/registry \
+            -v "$HOME/.cargo/git":/root/.cargo/git \
+            -v "$HOME/.cache/pdfium-rs":/root/.cache/pdfium-rs \
+            -w /work \
+            python:3.12-alpine \
+            /work/scripts/build-musl-py.sh
+          # The container runs as root; fix perms so subsequent steps can
+          # read/upload the produced wheel.
+          sudo chmod -R a+rw packages/python/dist/ || true
+
       - name: Copy pdfium dylib into wheel (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.musl
         working-directory: packages/python
         run: |
           # Fix permissions from Docker/maturin build
@@ -189,10 +223,17 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-26-intel
+            target: x86_64-apple-darwin
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use-container: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     name: Test ${{ matrix.target }}
 
@@ -201,7 +242,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Download wheels
         uses: actions/download-artifact@v4
@@ -210,9 +251,11 @@ jobs:
           path: dist
 
       - name: Install wheel
+        if: ${{ !matrix.use-container }}
         run: pip install --no-index --find-links dist liteparse
 
       - name: Smoke test
+        if: ${{ !matrix.use-container }}
         run: |
           python -c "
           from liteparse import LiteParse, ParseResult, ParsedPage, TextItem, ScreenshotResult
@@ -222,6 +265,7 @@ jobs:
           "
 
       - name: Parse test
+        if: ${{ !matrix.use-container }}
         run: |
           python -c "
           from liteparse import LiteParse
@@ -237,6 +281,7 @@ jobs:
           "
 
       - name: Bytes parse test
+        if: ${{ !matrix.use-container }}
         run: |
           python -c "
           from liteparse import LiteParse
@@ -250,6 +295,7 @@ jobs:
           "
 
       - name: Screenshot test
+        if: ${{ !matrix.use-container }}
         run: |
           python -c "
           from liteparse import LiteParse
@@ -263,7 +309,37 @@ jobs:
           "
 
       - name: CLI test
+        if: ${{ !matrix.use-container }}
         run: |
           lit --version
           lit parse demo/docs/apple-10k-2024.pdf --no-ocr --max-pages 1 -q | head -5
           echo "CLI test passed"
+
+      - name: Test in musl container
+        if: ${{ matrix.use-container }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -w /work \
+            python:3.12-alpine \
+            sh -c '
+              pip install --no-index --find-links dist liteparse
+              python -c "
+          from liteparse import LiteParse, ParseResult, ParsedPage, TextItem, ScreenshotResult
+          parser = LiteParse(ocr_enabled=False, quiet=True)
+          print(repr(parser))
+          print(\"LiteParse loaded successfully\")
+          "
+              python -c "
+          from liteparse import LiteParse
+          parser = LiteParse(ocr_enabled=False, quiet=True, max_pages=2)
+          result = parser.parse(\"demo/docs/apple-10k-2024.pdf\")
+          assert result.num_pages == 2, f\"Expected 2 pages, got {result.num_pages}\"
+          assert len(result.text) > 0, \"Expected non-empty text\"
+          print(f\"Parsed {result.num_pages} pages, {len(result.text)} chars\")
+          print(\"Parse test passed\")
+          "
+              lit --version
+              lit parse demo/docs/apple-10k-2024.pdf --no-ocr --max-pages 1 -q | head -5
+              echo "CLI test passed"
+            '

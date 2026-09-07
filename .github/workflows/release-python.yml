@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 2.1.0)'
+        description: "Version to release (e.g. 2.1.0)"
         required: true
         type: string
       dry-run:
-        description: 'Dry run (build but do not publish)'
+        description: "Dry run (build but do not publish)"
         type: boolean
         default: false
 
@@ -47,14 +47,24 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
 
+          - os: macos-26-intel
+            target: x86_64-apple-darwin
+
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
 
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
 
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
     name: Build ${{ matrix.target }}
@@ -64,14 +74,14 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.musl
         run: |
           sudo apt-get update
           sudo apt-get install -y libtesseract-dev libleptonica-dev
@@ -96,7 +106,18 @@ jobs:
             target
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-python-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build wheels
+      - name: Stage pdfium for wheel inclusion
+        if: ${{ !matrix.musl }}
+        shell: bash
+        # Pre-download pdfium and place it at packages/python/liteparse/<dylib>
+        # so the `[tool.maturin] include` rule packs it into the wheel during
+        # the build below. This is what gets the dylib listed in the wheel's
+        # RECORD manifest — appending it after the build leaves RECORD out of
+        # sync, which Poetry warns about.
+        run: bash packages/python/scripts/download-pdfium.sh ${{ matrix.target }}
+
+      - name: Build wheels (glibc)
+        if: ${{ !matrix.musl }}
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -112,70 +133,25 @@ jobs:
               apk add tesseract-ocr-dev leptonica-dev openssl-dev pkgconf || true
             fi
 
-      - name: Copy pdfium dylib into wheel (Unix)
-        if: runner.os != 'Windows'
-        working-directory: packages/python
+      - name: Build wheels (musl container)
+        if: ${{ matrix.musl }}
+        # Same pattern as the node musl build: run inside a vanilla
+        # python:3-alpine with clang+libc++ from apk. Bypasses maturin-action's
+        # musllinux_1_2 cross image, which causes FORTIFY_SOURCE issues with
+        # tesseract's C++ build and broken host-openssl for build-deps.
         run: |
-          # Fix permissions from Docker/maturin build
-          sudo chmod -R a+rw dist/ || true
-          # Find pdfium in target/ (mounted from Docker) or cache
-          PDFIUM_LIB=$(find ../../target -name "libpdfium.so" -type f 2>/dev/null | head -1 || true)
-          if [ -z "$PDFIUM_LIB" ]; then
-            PDFIUM_LIB=$(find ~/.cache/pdfium-rs -name "libpdfium.so" -type f 2>/dev/null | head -1 || true)
-          fi
-          if [ -n "$PDFIUM_LIB" ]; then
-            export PDFIUM_LIB_PATH="$(dirname "$PDFIUM_LIB")"
-          fi
-          bash scripts/copy-pdfium.sh
-          for whl in dist/*.whl; do
-            python -c "
-          import zipfile, os, sys
-          whl = sys.argv[1]
-          if sys.platform == 'darwin':
-              dylib = 'libpdfium.dylib'
-          else:
-              dylib = 'libpdfium.so'
-          dylib_path = os.path.join('liteparse', dylib)
-          if not os.path.exists(dylib_path):
-              print(f'Warning: {dylib_path} not found, skipping')
-              sys.exit(0)
-          with zipfile.ZipFile(whl, 'a') as z:
-              z.write(dylib_path, f'liteparse/{dylib}')
-          print(f'Added {dylib} to {whl}')
-          " "$whl"
-          done
-
-      - name: Copy pdfium dylib into wheel (Windows)
-        if: runner.os == 'Windows'
-        working-directory: packages/python
-        shell: pwsh
-        run: |
-          $cacheBase = "$env:LOCALAPPDATA\pdfium-rs"
-          if (-not (Test-Path $cacheBase)) {
-            $cacheBase = "$env:USERPROFILE\.cache\pdfium-rs"
-          }
-          $dll = Get-ChildItem -Path $cacheBase -Recurse -Filter "pdfium.dll" | Select-Object -First 1
-          if (-not $dll) {
-            $dll = Get-ChildItem -Path "..\..\target" -Recurse -Filter "pdfium.dll" | Select-Object -First 1
-          }
-          if ($dll) {
-            Copy-Item $dll.FullName -Destination "liteparse\pdfium.dll"
-            Write-Host "Copied $($dll.FullName) -> liteparse\pdfium.dll"
-            foreach ($whl in Get-ChildItem dist\*.whl) {
-              python -c @"
-          import zipfile, sys, os
-          whl = sys.argv[1]
-          dll = os.path.join('liteparse', 'pdfium.dll')
-          if os.path.exists(dll):
-              with zipfile.ZipFile(whl, 'a') as z:
-                  z.write(dll, 'liteparse/pdfium.dll')
-              print(f'Added pdfium.dll to {whl}')
-          "@ $whl.FullName
-            }
-          } else {
-            Write-Error "Could not find pdfium.dll"
-            exit 1
-          }
+          chmod +x scripts/build-musl-py.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -v "$HOME/.cargo/registry":/root/.cargo/registry \
+            -v "$HOME/.cargo/git":/root/.cargo/git \
+            -v "$HOME/.cache/pdfium-rs":/root/.cache/pdfium-rs \
+            -w /work \
+            python:3.12-alpine \
+            /work/scripts/build-musl-py.sh
+          # The container runs as root; fix perms so subsequent steps can
+          # read/upload the produced wheel.
+          sudo chmod -R a+rw packages/python/dist/ || true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -212,10 +188,14 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-26-intel
+            target: x86_64-apple-darwin
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     name: Test ${{ matrix.target }}
 
@@ -224,7 +204,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Download wheels
         uses: actions/download-artifact@v4
@@ -295,25 +275,30 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             artifact: lit-linux-x64
+            use-glibc-container: true
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             artifact: lit-linux-arm64
+            use-glibc-container: true
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: lit-darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-26-intel
+            artifact: lit-darwin-x64
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.use-glibc-container
         run: |
           sudo apt-get update
           sudo apt-get install -y libtesseract-dev libleptonica-dev
@@ -333,7 +318,21 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-cli-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
+        if: ${{ !matrix.use-glibc-container }}
         run: cargo build --release --target ${{ matrix.target }} -p liteparse
+
+      - name: Build (glibc container)
+        if: ${{ matrix.use-glibc-container }}
+        run: |
+          chmod +x scripts/build-glibc-cli.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -v "$HOME/.cargo/registry":/root/.cargo/registry \
+            -v "$HOME/.cargo/git":/root/.cargo/git \
+            -v "$HOME/.cache/pdfium-rs":/root/.cache/pdfium-rs \
+            -w /work \
+            node:20-bullseye \
+            /work/scripts/build-glibc-cli.sh ${{ matrix.target }}
 
       - name: Package binary
         run: |
@@ -381,6 +380,7 @@ jobs:
         with:
           packages-dir: dist/
           password: ${{ secrets.PYPI_TOKEN }}
+          skip-existing: true
 
       - name: Create git tag
         if: ${{ !inputs.dry-run }}

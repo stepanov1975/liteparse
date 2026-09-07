@@ -14,6 +14,9 @@ on:
       - "packages/node/**"
       - ".github/workflows/ci-node.yml"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -28,19 +31,35 @@ jobs:
             node-arch: darwin-arm64
             pdfium-dylib: libpdfium.dylib
 
-          - os: ubuntu-latest
+          - os: macos-26-intel
+            target: x86_64-apple-darwin
+            node-arch: darwin-x64
+            pdfium-dylib: libpdfium.dylib
+
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             node-arch: linux-x64-gnu
             pdfium-dylib: libpdfium.so
 
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             node-arch: linux-arm64-gnu
             pdfium-dylib: libpdfium.so
 
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            node-arch: linux-x64-musl
+            pdfium-dylib: libpdfium.so
+            use-container: true
+
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             node-arch: win32-x64-msvc
+            pdfium-dylib: pdfium.dll
+
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            node-arch: win32-arm64-msvc
             pdfium-dylib: pdfium.dll
 
     runs-on: ${{ matrix.os }}
@@ -53,12 +72,12 @@ jobs:
         with:
           node-version: 20
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies (Linux glibc)
+        if: runner.os == 'Linux' && !matrix.use-container
         run: |
           sudo apt-get update
           sudo apt-get install -y libtesseract-dev libleptonica-dev
@@ -71,7 +90,7 @@ jobs:
             ~/.cache/pdfium-rs
             ~/Library/Caches/pdfium-rs
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-node-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-${{ matrix.target }}-cargo-node-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Force Ninja generator (Windows)
         if: runner.os == 'Windows'
@@ -83,9 +102,23 @@ jobs:
         run: npm install --ignore-scripts
 
       - name: Build native module
+        if: ${{ !matrix.use-container }}
         working-directory: packages/node
         shell: bash
         run: npx napi build --cargo-cwd ../../crates/liteparse-napi --platform --release --js false --dts native.d.ts --target ${{ matrix.target }} .
+
+      - name: Build native module (musl container)
+        if: ${{ matrix.use-container }}
+        run: |
+          chmod +x scripts/build-musl-node.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -v "$HOME/.cargo/registry":/root/.cargo/registry \
+            -v "$HOME/.cargo/git":/root/.cargo/git \
+            -v "$HOME/.cache/pdfium-rs":/root/.cache/pdfium-rs \
+            -w /work/packages/node \
+            node:20-alpine \
+            /work/scripts/build-musl-node.sh
 
       - name: Copy pdfium dylib (Unix)
         if: runner.os != 'Windows'
@@ -112,7 +145,7 @@ jobs:
 
       - name: Build TypeScript
         working-directory: packages/node
-        run: npx tsc
+        run: npm run build:ts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -121,7 +154,11 @@ jobs:
           path: |
             packages/node/*.node
             packages/node/${{ matrix.pdfium-dylib }}
-          if-no-files-found: error
+            packages/node/libc++.so.1
+            packages/node/libc++abi.so.1
+            packages/node/libunwind.so.1
+            packages/node/libgcc_s.so.1
+          if-no-files-found: warn
 
   test:
     needs: build
@@ -131,10 +168,17 @@ jobs:
         include:
           - os: macos-latest
             node-arch: darwin-arm64
-          - os: ubuntu-latest
+          - os: macos-26-intel
+            node-arch: darwin-x64
+          - os: ubuntu-22.04
             node-arch: linux-x64-gnu
+          - os: ubuntu-22.04
+            node-arch: linux-x64-musl
+            use-container: true
           - os: windows-latest
             node-arch: win32-x64-msvc
+          - os: windows-11-arm
+            node-arch: win32-arm64-msvc
     runs-on: ${{ matrix.os }}
     name: Test ${{ matrix.node-arch }}
 
@@ -157,15 +201,19 @@ jobs:
 
       - name: Build TypeScript
         working-directory: packages/node
-        run: npx tsc
+        run: npm run build:ts
 
-      - name: Smoke test
+      - name: Test ESM + CJS entry points
+        if: ${{ !matrix.use-container }}
         working-directory: packages/node
+        run: npm test
+
+      - name: Smoke test (musl container)
+        if: ${{ matrix.use-container }}
         run: |
-          node -e "
-            import('./dist/lib.js').then(async ({ LiteParse }) => {
-              const p = new LiteParse({ ocrEnabled: false, quiet: true });
-              console.log('Config:', JSON.stringify(p.getConfig()));
-              console.log('Native module loaded successfully');
-            });
-          "
+          chmod +x scripts/smoke-test-musl-node.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            -w /work/packages/node \
+            node:20-alpine \
+            /work/scripts/smoke-test-musl-node.sh

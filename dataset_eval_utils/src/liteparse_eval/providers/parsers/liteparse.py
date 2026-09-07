@@ -41,10 +41,11 @@ class LiteparseProvider(ParserProvider):
             max_pages=max_pages,
             dpi=dpi,
             preserve_very_small_text=preserve_very_small_text,
+            output_format="markdown",
             quiet=True,
         )
 
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from a document using liteparse."""
+        """Extract markdown from a document using liteparse."""
         result = self.parser.parse(file_path)
         return result.text

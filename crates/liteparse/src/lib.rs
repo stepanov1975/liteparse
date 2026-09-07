@@ -5,33 +5,56 @@
 //!
 
 // ── Public API re-exports ──────────────────────────────────────────────
-pub use config::{LiteParseConfig, OutputFormat};
+pub use config::{DEFAULT_PAGE_BATCH_SIZE, LiteParseConfig, OutputFormat};
 pub use error::LiteParseError;
-pub use parser::{LiteParse, ParseResult, ScreenshotResult};
+#[cfg(not(target_arch = "wasm32"))]
+pub use font_db_resolver::FontDbResolver;
+pub use glyph_resolver::{GLYPH_RESOLVER_FONT_SIZE, GlyphResolver};
+pub use parser::{LiteParse, ParseBatch, ParseResult, ParseSession, ScreenshotResult};
+pub use raw_text::{RawTextItem, extract_raw_text_items};
 pub use search::{SearchOptions, search_items};
-pub use types::{ParsedPage, TextItem};
+pub use types::{DocumentMetadata, ParsedPage, TextItem, WordBox};
 
 // ── Modules with user-facing types (visible in docs) ───────────────────
 pub mod config;
 pub mod error;
+pub mod glyph_resolver;
+pub mod layout;
 pub mod parser;
+pub mod raw_text;
 pub mod search;
 pub mod types;
 
 // ── Internal modules (available for binding crates, hidden from docs) ──
 #[cfg(not(target_arch = "wasm32"))]
+mod acroform_repair;
+mod bidi;
+#[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 pub mod conversion;
 #[doc(hidden)]
+pub mod document_metadata;
+#[doc(hidden)]
 pub mod extract;
 #[doc(hidden)]
+pub mod figure_cluster;
+#[doc(hidden)]
+pub mod font_cmap;
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub mod font_db_resolver;
+#[doc(hidden)]
+pub mod glyph_names;
+#[doc(hidden)]
+pub mod markdown_layout;
+#[doc(hidden)]
 pub mod ocr;
+
 #[doc(hidden)]
 pub mod ocr_merge;
 #[doc(hidden)]
 pub mod output;
 #[doc(hidden)]
 pub mod projection;
-#[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 pub mod render;
