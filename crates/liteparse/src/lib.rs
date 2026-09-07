@@ -32,7 +32,8 @@ mod bidi;
 #[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 pub mod conversion;
-mod document_metadata;
+#[doc(hidden)]
+pub mod document_metadata;
 #[doc(hidden)]
 pub mod extract;
 #[doc(hidden)]

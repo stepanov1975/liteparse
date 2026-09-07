@@ -49,7 +49,7 @@ pub(crate) fn resolve_glyph_name_codepoint(name: &str) -> Option<u32> {
     })?;
     let control_or_private_use = codepoint <= 0x1F
         || (0x7F..=0x9F).contains(&codepoint)
-        || (codepoint > 0xE000 && codepoint <= 0xF8FF);
+        || (0xE000..=0xF8FF).contains(&codepoint);
     (!control_or_private_use).then_some(codepoint)
 }
 
@@ -513,6 +513,14 @@ mod tests {
         assert_eq!(resolve_glyph_name("uni00e9"), None);
         // surrogate halves are invalid
         assert_eq!(resolve_glyph_name("uniD800"), None);
+    }
+
+    #[test]
+    fn strict_codepoint_rejects_private_use_boundaries() {
+        assert_eq!(resolve_glyph_name_codepoint("uniDFFF"), None);
+        assert_eq!(resolve_glyph_name_codepoint("uniE000"), None);
+        assert_eq!(resolve_glyph_name_codepoint("uF8FF"), None);
+        assert_eq!(resolve_glyph_name_codepoint("uF900"), Some(0xF900));
     }
 
     #[test]

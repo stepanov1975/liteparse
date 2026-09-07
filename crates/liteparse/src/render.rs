@@ -45,7 +45,7 @@ pub fn render_pages_to_png(
     detect_rects: bool,
     render_form_fields: bool,
 ) -> Result<Vec<RenderedPage>, LiteParseError> {
-    let lib = Library::init();
+    let lib = Library::try_init()?;
     let document = load_document_from_input(&lib, input, password)?;
     render_document_pages(
         &document,
@@ -304,7 +304,7 @@ struct ImageBoundsOutput {
 
 /// Extract image bounding boxes and print as JSON to stdout.
 pub fn image_bounds(pdf_path: &str, page_num: Option<u32>) -> Result<(), LiteParseError> {
-    let lib = Library::init();
+    let lib = Library::try_init()?;
     let document = load_document_from_input(&lib, &PdfInput::Path(pdf_path.to_string()), None)?;
     let page_count = document.page_count();
 

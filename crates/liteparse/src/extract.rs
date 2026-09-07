@@ -51,7 +51,7 @@ pub fn extract_pages_from_input(
     max_pages: usize,
     password: Option<&str>,
 ) -> Result<Vec<LitePage>, LiteParseError> {
-    let lib = Library::init();
+    let lib = Library::try_init()?;
     let document = load_document_from_input(&lib, input, password)?;
     extract_pages_from_document(&document, target_pages, max_pages)
 }

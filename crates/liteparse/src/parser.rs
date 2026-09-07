@@ -364,7 +364,7 @@ impl LiteParse {
         let password = self.config.password.as_deref();
 
         let (pages, mut page_complexities) = {
-            let lib = Library::init();
+            let lib = Library::try_init()?;
             let document = extract::load_document_from_input(&lib, &validated_input, password)?;
 
             // Complexity deliberately runs against the flattened document: once
@@ -595,7 +595,7 @@ impl LiteParse {
             flattened_page_numbers,
             repaired_input,
         ) = {
-            let lib = Library::init();
+            let lib = Library::try_init()?;
             #[cfg(not(target_arch = "wasm32"))]
             let repaired_input = self
                 .config
@@ -799,7 +799,7 @@ impl LiteParse {
             let mut round_start = 0usize;
             while round_start < pages.len() {
                 let (rendered, next_start) = {
-                    let lib = Library::init();
+                    let lib = Library::try_init()?;
                     let document = extract::load_document_from_input(&lib, ocr_input, password)?;
                     ocr_merge::render_pages_for_ocr(
                         &document,
@@ -1165,7 +1165,7 @@ impl LiteParse {
         // the page count before the first batch is parsed, and so the
         // document-level bookmark walk is paid once instead of per batch.
         let (total_pages, outline) = {
-            let lib = Library::init();
+            let lib = Library::try_init()?;
             let document = extract::load_document_from_input(
                 &lib,
                 &input.input,
