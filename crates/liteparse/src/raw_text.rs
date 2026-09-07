@@ -147,7 +147,7 @@ pub fn extract_raw_text_items(
 
         if let Some(first) = run.first()
             && (first.text_object != glyph.text_object
-                || (first.angle - glyph.angle).abs() > ANGLE_SPLIT_RADIANS)
+                || angular_distance(first.angle, glyph.angle) > ANGLE_SPLIT_RADIANS)
         {
             flush(&mut run, &mut items);
         }
@@ -205,6 +205,12 @@ fn normalize_reported_angle(angle_radians: f32, page_rotation: i32) -> f32 {
     } else {
         normalize_angle(angle_radians, page_rotation)
     }
+}
+
+/// Shortest distance between two normalized angles, including across 0/2π.
+fn angular_distance(first: f32, second: f32) -> f32 {
+    let difference = (first - second).abs();
+    difference.min(std::f32::consts::TAU - difference)
 }
 
 /// Fold the page's `/Rotate` into pdfium's counter-clockwise glyph angle and
@@ -436,6 +442,8 @@ mod tests {
         assert!(close(normalize_reported_angle(-1.0, 0), 0.0));
         assert!(close(normalize_reported_angle(-0.5, 0), 2.0 * PI - 0.5));
         assert!(close(normalize_reported_angle(0.0, 1), PI / 2.0));
+        assert!(close(angular_distance(0.004, 2.0 * PI - 0.004), 0.008));
+        assert!(close(angular_distance(0.0, PI), PI));
     }
 
     #[test]

@@ -41,12 +41,19 @@ pub(crate) fn resolve_glyph_name_codepoint(name: &str) -> Option<u32> {
     if base.is_empty() {
         return None;
     }
-    let codepoint = algorithmic_codepoint(base).or_else(|| {
-        let idx = AGL_SUBSET.binary_search_by(|(n, _)| (*n).cmp(base)).ok()?;
-        let mut chars = AGL_SUBSET[idx].1.chars();
-        let c = chars.next()?;
-        chars.next().is_none().then_some(c as u32)
-    })?;
+    let codepoint = match base {
+        "ff" => 0xFB00,
+        "fi" => 0xFB01,
+        "fl" => 0xFB02,
+        "ffi" => 0xFB03,
+        "ffl" => 0xFB04,
+        _ => algorithmic_codepoint(base).or_else(|| {
+            let idx = AGL_SUBSET.binary_search_by(|(n, _)| (*n).cmp(base)).ok()?;
+            let mut chars = AGL_SUBSET[idx].1.chars();
+            let c = chars.next()?;
+            chars.next().is_none().then_some(c as u32)
+        })?,
+    };
     let control_or_private_use = codepoint <= 0x1F
         || (0x7F..=0x9F).contains(&codepoint)
         || (0xE000..=0xF8FF).contains(&codepoint);
@@ -521,6 +528,20 @@ mod tests {
         assert_eq!(resolve_glyph_name_codepoint("uniE000"), None);
         assert_eq!(resolve_glyph_name_codepoint("uF8FF"), None);
         assert_eq!(resolve_glyph_name_codepoint("uF900"), Some(0xF900));
+    }
+
+    #[test]
+    fn strict_codepoint_preserves_ligature_scalars() {
+        for (name, expected) in [
+            ("ff", 0xFB00),
+            ("fi", 0xFB01),
+            ("fl", 0xFB02),
+            ("ffi", 0xFB03),
+            ("ffl", 0xFB04),
+        ] {
+            assert_eq!(resolve_glyph_name_codepoint(name), Some(expected));
+        }
+        assert_eq!(resolve_glyph_name_codepoint("fi.alt"), Some(0xFB01));
     }
 
     #[test]
