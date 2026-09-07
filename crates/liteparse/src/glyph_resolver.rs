@@ -37,4 +37,17 @@ pub trait GlyphResolver: Send + Sync {
     /// Return the replacement text (one or more chars, e.g. for a ligature),
     /// or `None` if the glyph is not recognized.
     fn resolve(&self, segments: &[(i32, f32, f32)]) -> Option<String>;
+
+    /// Resolve a glyph to a single codepoint, without the ligature expansion
+    /// [`resolve`](Self::resolve) may apply. Used by the raw item mode
+    /// ([`crate::raw_text`]), which maps every glyph to exactly one codepoint.
+    /// The default derives it from `resolve` and answers `None` for
+    /// multi-character replacements; a resolver backed by a codepoint database
+    /// should override it to return the recorded value.
+    fn resolve_codepoint(&self, segments: &[(i32, f32, f32)]) -> Option<u32> {
+        let text = self.resolve(segments)?;
+        let mut chars = text.chars();
+        let c = chars.next()?;
+        chars.next().is_none().then_some(c as u32)
+    }
 }

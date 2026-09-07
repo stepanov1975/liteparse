@@ -15,7 +15,7 @@ const XMP_MAX_BYTES: usize = 64 * 1024;
 #[cfg(not(target_arch = "wasm32"))]
 const XMP_CATALOG_MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
-pub(crate) fn extract(input: &PdfInput, document: &Document<'_>) -> DocumentMetadata {
+pub fn extract(input: &PdfInput, document: &Document<'_>) -> DocumentMetadata {
     let mut metadata = match input {
         #[cfg(not(target_arch = "wasm32"))]
         PdfInput::Path(path) => std::fs::File::open(path)
@@ -27,8 +27,14 @@ pub(crate) fn extract(input: &PdfInput, document: &Document<'_>) -> DocumentMeta
         PdfInput::Path(_) => DocumentMetadata::default(),
     };
 
-    metadata.creation_date = document.meta_text("CreationDate");
-    metadata.mod_date = document.meta_text("ModDate");
+    // `meta_text` reports an Info key that is present but empty as `Some("")`;
+    // the metadata block has always treated that as absent.
+    metadata.creation_date = document
+        .meta_text("CreationDate")
+        .filter(|value| !value.is_empty());
+    metadata.mod_date = document
+        .meta_text("ModDate")
+        .filter(|value| !value.is_empty());
     metadata.file_version = document.file_version();
     let security_revision = document.security_handler_revision();
     metadata.is_encrypted = Some(security_revision != -1);

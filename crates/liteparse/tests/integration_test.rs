@@ -892,3 +892,58 @@ async fn test_ocr_rounds_fill_across_sparse_pages() {
          rounds are being cut short by page span"
     );
 }
+
+/// The raw item mode keeps every glyph: the char codes across all
+/// items add up to the page's char count minus the generated line breaks it
+/// drops, items keep their trailing whitespace, and a generated glyph only
+/// ever closes an item.
+#[test]
+#[serial]
+fn raw_text_items_account_for_every_glyph() {
+    use liteparse::extract_raw_text_items;
+
+    let lib = pdfium::Library::init();
+    let document = lib
+        .load_document("../../integration_tests_data/sample.pdf", None)
+        .expect("sample.pdf loads");
+    let page = document.page(0).expect("page 0 loads");
+    let text_page = page.text().expect("text page loads");
+    let view_box = page.view_box().expect("page has a bounding box");
+
+    let items = extract_raw_text_items(&page, &text_page, &view_box, None);
+    assert!(!items.is_empty(), "sample.pdf page 1 has text");
+
+    let generated_breaks = text_page
+        .chars()
+        .filter(|c| c.is_generated() && matches!(c.unicode(), 0x0A | 0x0D))
+        .count();
+    let glyphs_in_items: usize = items.iter().map(|item| item.char_codes.len()).sum();
+    assert_eq!(
+        glyphs_in_items + generated_breaks,
+        text_page.char_count() as usize,
+        "every glyph lands in exactly one item"
+    );
+
+    for item in &items {
+        assert!(!item.text.is_empty() || item.char_codes.iter().all(|&c| c == 0));
+        assert!(item.width >= 0.0 && item.height >= 0.0);
+        assert!((0.0..std::f32::consts::TAU).contains(&item.angle_radians));
+        // A space glyph is always the last glyph of its item.
+        let spaces: Vec<usize> = item
+            .text
+            .char_indices()
+            .filter(|(_, c)| c.is_ascii_whitespace())
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            spaces.iter().all(|&i| i == item.text.len() - 1),
+            "whitespace closes an item: {:?}",
+            item.text
+        );
+    }
+    let text: String = items.iter().map(|item| item.text.as_str()).collect();
+    assert!(
+        text.chars().any(|c| c.is_alphabetic()),
+        "sample text survives: {text:?}"
+    );
+}

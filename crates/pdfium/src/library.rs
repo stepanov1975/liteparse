@@ -66,9 +66,18 @@ impl Library {
     /// Multiple concurrent callers are serialized; only one `Library`
     /// instance exists at a time.
     pub fn init() -> Library {
+        Self::try_init().expect("failed to load pdfium shared library")
+    }
+
+    /// [`Library::init`] that reports a missing or unloadable pdfium shared
+    /// library as [`PdfiumError::LibraryUnavailable`] instead of panicking.
+    /// Hosts that cannot afford a panic across an FFI boundary (a Node addon,
+    /// where an escaping panic aborts the process) should call this first;
+    /// the search path is described on `pdfium_sys::dynamic::load_default`.
+    pub fn try_init() -> Result<Library, PdfiumError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            pdfium_sys::dynamic::load_default().expect("failed to load pdfium shared library");
+            pdfium_sys::dynamic::load_default().map_err(|_| PdfiumError::LibraryUnavailable)?;
             // Recover from poisoning: a panic mid-FFI may leave PDFium in
             // an odd state, but subsequent calls should still be allowed
             // (the worst case is that the next parse also fails cleanly).
@@ -76,12 +85,12 @@ impl Library {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             INIT.call_once(|| unsafe { ffi!(FPDF_InitLibrary()) });
-            Library { _guard: guard }
+            Ok(Library { _guard: guard })
         }
         #[cfg(target_arch = "wasm32")]
         {
             INIT.call_once(|| unsafe { ffi!(FPDF_InitLibrary()) });
-            Library { _private: () }
+            Ok(Library { _private: () })
         }
     }
 

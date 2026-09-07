@@ -29,6 +29,47 @@ pub fn resolve_glyph_name(name: &str) -> Option<String> {
     if out.is_empty() { None } else { Some(out) }
 }
 
+/// Strict single-codepoint glyph-name resolution for the raw item mode
+/// ([`crate::raw_text`]), where every glyph must map to exactly one codepoint.
+/// Differs from [`resolve_glyph_name`] in three ways: no `_` component
+/// splitting, no ligature expansion (the AGL codepoint itself is returned), and
+/// a `uni` name must carry exactly four hex digits. Returns `None` for
+/// anything that does not resolve to exactly one codepoint, and for control /
+/// private-use results, which are never legitimate rendered text.
+pub(crate) fn resolve_glyph_name_codepoint(name: &str) -> Option<u32> {
+    let base = name.split('.').next()?;
+    if base.is_empty() {
+        return None;
+    }
+    let codepoint = algorithmic_codepoint(base).or_else(|| {
+        let idx = AGL_SUBSET.binary_search_by(|(n, _)| (*n).cmp(base)).ok()?;
+        let mut chars = AGL_SUBSET[idx].1.chars();
+        let c = chars.next()?;
+        chars.next().is_none().then_some(c as u32)
+    })?;
+    let control_or_private_use = codepoint <= 0x1F
+        || (0x7F..=0x9F).contains(&codepoint)
+        || (codepoint > 0xE000 && codepoint <= 0xF8FF);
+    (!control_or_private_use).then_some(codepoint)
+}
+
+/// `uniXXXX` (exactly four hex digits) or `uXXXX`..`uXXXXXX`, hex digits in
+/// either case.
+fn algorithmic_codepoint(base: &str) -> Option<u32> {
+    let hex = if let Some(hex) = base.strip_prefix("uni") {
+        (hex.len() == 4).then_some(hex)?
+    } else if let Some(hex) = base.strip_prefix('u') {
+        (4..=6).contains(&hex.len()).then_some(hex)?
+    } else {
+        return None;
+    };
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let codepoint = u32::from_str_radix(hex, 16).ok()?;
+    char::from_u32(codepoint).map(|_| codepoint)
+}
+
 /// ASCII expansion for ligature presentation forms, matching the existing
 /// extraction-time ligature handling.
 pub fn presentation_form_expansion(c: char) -> Option<&'static str> {

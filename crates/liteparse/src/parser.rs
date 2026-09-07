@@ -614,8 +614,14 @@ impl LiteParse {
                 .config
                 .extract_form_fields
                 .then(|| document.form_type());
-            let creator = document.meta_text("Creator");
-            let producer = document.meta_text("Producer");
+            // An Info key that is present but empty is reported as `Some("")`
+            // by `meta_text`; the public metadata keeps treating it as absent.
+            let creator = document
+                .meta_text("Creator")
+                .filter(|value| !value.is_empty());
+            let producer = document
+                .meta_text("Producer")
+                .filter(|value| !value.is_empty());
             let doc_meta = want_doc_meta.then(|| {
                 // AcroForm repair rewrites the file, so provenance has to come
                 // from the original document; fall back if it no longer loads.

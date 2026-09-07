@@ -199,9 +199,10 @@ impl<'lib> Document<'lib> {
         self.page(index).map(Some)
     }
 
-    /// Read one entry from the document's `/Info` metadata dictionary
-    /// (e.g. `"Creator"`, `"Producer"`, `"Title"`). Returns `None` when the
-    /// tag is absent or empty.
+    /// Value of `tag` in the document's Info dictionary (`Creator`,
+    /// `Producer`, `CreationDate`, ...). `None` when the document has no Info
+    /// dictionary; `Some("")` when it has one but the key is missing or
+    /// empty — pdfium reports both the same way.
     pub fn meta_text(&self, tag: &str) -> Option<String> {
         let tag_c = std::ffi::CString::new(tag).ok()?;
         let needed = unsafe {
@@ -234,9 +235,10 @@ impl<'lib> Document<'lib> {
         } else {
             chars
         };
-        if end == 0 {
-            return None;
-        }
+        // `end == 0` is an Info dictionary that exists but has no (or an
+        // empty) value for `tag`; pdfium cannot tell those two apart. `None`
+        // is reserved for a document with no Info dictionary at all, which
+        // callers reporting provenance need to distinguish from `""`.
         Some(String::from_utf16_lossy(&buf[..end]))
     }
 

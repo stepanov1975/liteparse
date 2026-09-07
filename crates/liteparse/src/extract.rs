@@ -74,7 +74,7 @@ pub(crate) fn extract_pages_from_document(
 }
 
 /// Output of [`extract_pages_and_images`].
-pub(crate) struct ExtractedPages {
+pub struct ExtractedPages {
     pub pages: Vec<LitePage>,
     pub page_errors: Vec<PageError>,
     /// Empty unless `output_options.extract_images` was set.
@@ -96,7 +96,7 @@ pub(crate) struct ExtractedPages {
 /// raster image object to bytes (when `output_options.extract_images` is true). Returned
 /// `ExtractedImage`s carry the same ids the markdown emitter will reference,
 /// so callers can match them up by id.
-pub(crate) fn extract_pages_and_images(
+pub fn extract_pages_and_images(
     document: &Document,
     target_pages: Option<&[u32]>,
     max_pages: usize,
@@ -448,7 +448,7 @@ fn rect_contains_center(rect: &RectF, item: &TextItem) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct ExtractionOutputOptions {
+pub struct ExtractionOutputOptions {
     pub continue_on_page_error: bool,
     pub extract_content_bounds: bool,
     pub extract_text_metadata: bool,
@@ -2131,7 +2131,7 @@ fn adjust_angle_for_rotation(angle_rad: f32, page_rotation: i32) -> f32 {
 
 /// Decompose scale factors from a 2D affine matrix.
 /// Computes eigenvalues of M^T * M.
-fn decompose_scale(m: &pdfium::Matrix) -> (f32, f32) {
+pub(crate) fn decompose_scale(m: &pdfium::Matrix) -> (f32, f32) {
     let (a, b, c, d) = (m.a as f64, m.b as f64, m.c as f64, m.d as f64);
     // M^T * M
     let mt_a = a * a + b * b;
@@ -2165,7 +2165,7 @@ fn median_f32(values: &[f32]) -> Option<f32> {
 }
 
 /// Check if a font is "buggy" based on its name and type.
-fn is_buggy_font(font_name: &str, font_type: FontType) -> bool {
+pub(crate) fn is_buggy_font(font_name: &str, font_type: FontType) -> bool {
     // TrueType subset fonts: name starts with "TT" or contains "+TT"
     if font_name.starts_with("TT") || font_name.contains("+TT") {
         return true;
@@ -2185,7 +2185,7 @@ fn is_buggy_font(font_name: &str, font_type: FontType) -> bool {
 /// None of these are ever legitimate rendered text; C1 controls in particular
 /// are emitted by a common class of subset fonts that mangle ToUnicode into
 /// the 0x80-0x9F range.
-fn is_buggy_codepoint(unicode: u32) -> bool {
+pub(crate) fn is_buggy_codepoint(unicode: u32) -> bool {
     unicode <= 0x1F || (0x7F..=0x9F).contains(&unicode) || (unicode > 0xE000 && unicode <= 0xF8FF)
 }
 
@@ -2704,7 +2704,7 @@ const CHAR_INFO_CHUNK: usize = 16 * 1024;
 /// Chunked reader over the fork's batched char-info API (chromium/8028+).
 /// `new` returns None when the loaded pdfium predates the API; callers then
 /// fall back to the per-character FFI getters.
-struct CharInfoChunks<'a, 'page, 'lib: 'page> {
+pub(crate) struct CharInfoChunks<'a, 'page, 'lib: 'page> {
     text_page: &'a TextPage<'page, 'lib>,
     buf: Vec<pdfium::pdfium_sys::FPDF_CHARINFO_LP>,
     /// Absolute char index of `buf[0]`.
@@ -2712,7 +2712,7 @@ struct CharInfoChunks<'a, 'page, 'lib: 'page> {
 }
 
 impl<'a, 'page, 'lib: 'page> CharInfoChunks<'a, 'page, 'lib> {
-    fn new(text_page: &'a TextPage<'page, 'lib>) -> Option<Self> {
+    pub(crate) fn new(text_page: &'a TextPage<'page, 'lib>) -> Option<Self> {
         // Empty-buffer call probes symbol support without reading records.
         text_page.char_infos_batch(0, &mut [])?;
         Some(Self {
@@ -2725,7 +2725,7 @@ impl<'a, 'page, 'lib: 'page> CharInfoChunks<'a, 'page, 'lib> {
     /// Record for absolute char index `i` (must be within the page's char
     /// count), refilling the chunk buffer on demand. Returns None only if
     /// the batch call unexpectedly comes back empty for a valid index.
-    fn record(&mut self, i: i32) -> Option<pdfium::pdfium_sys::FPDF_CHARINFO_LP> {
+    pub(crate) fn record(&mut self, i: i32) -> Option<pdfium::pdfium_sys::FPDF_CHARINFO_LP> {
         let off = i - self.start;
         if off < 0 || off as usize >= self.buf.len() {
             self.buf.resize(CHAR_INFO_CHUNK, Default::default());
@@ -2743,55 +2743,55 @@ impl<'a, 'page, 'lib: 'page> CharInfoChunks<'a, 'page, 'lib> {
 /// Per-character accessor that reads from a batched record when available
 /// and falls back to the per-character FFI getters otherwise. Method
 /// semantics mirror the corresponding [`pdfium::TextChar`] methods exactly.
-struct CharView<'a, 'tp> {
-    ch: &'a pdfium::TextChar<'tp>,
-    rec: Option<pdfium::pdfium_sys::FPDF_CHARINFO_LP>,
+pub(crate) struct CharView<'a, 'tp> {
+    pub(crate) ch: &'a pdfium::TextChar<'tp>,
+    pub(crate) rec: Option<pdfium::pdfium_sys::FPDF_CHARINFO_LP>,
 }
 
 impl CharView<'_, '_> {
-    fn unicode(&self) -> u32 {
+    pub(crate) fn unicode(&self) -> u32 {
         match &self.rec {
             Some(rec) => rec.unicode,
             None => self.ch.unicode(),
         }
     }
 
-    fn char_code(&self) -> u32 {
+    pub(crate) fn char_code(&self) -> u32 {
         match &self.rec {
             Some(rec) => rec.char_code,
             None => self.ch.char_code(),
         }
     }
 
-    fn is_generated(&self) -> bool {
+    pub(crate) fn is_generated(&self) -> bool {
         match &self.rec {
             Some(rec) => rec.char_type == CHAR_TYPE_GENERATED,
             None => self.ch.is_generated(),
         }
     }
 
-    fn has_unicode_map_error(&self) -> bool {
+    pub(crate) fn has_unicode_map_error(&self) -> bool {
         match &self.rec {
             Some(rec) => rec.char_type == CHAR_TYPE_NOT_UNICODE,
             None => self.ch.has_unicode_map_error(),
         }
     }
 
-    fn text_render_mode(&self) -> Option<i32> {
+    pub(crate) fn text_render_mode(&self) -> Option<i32> {
         match &self.rec {
             Some(rec) => (rec.text_render_mode >= 0).then_some(rec.text_render_mode),
             None => self.ch.text_render_mode(),
         }
     }
 
-    fn text_object(&self) -> Option<pdfium::pdfium_sys::FPDF_PAGEOBJECT> {
+    pub(crate) fn text_object(&self) -> Option<pdfium::pdfium_sys::FPDF_PAGEOBJECT> {
         match &self.rec {
             Some(rec) => (!rec.text_object.is_null()).then_some(rec.text_object),
             None => self.ch.text_object(),
         }
     }
 
-    fn loose_char_box(&self) -> Option<RectF> {
+    pub(crate) fn loose_char_box(&self) -> Option<RectF> {
         match &self.rec {
             Some(rec) => Some(RectF {
                 left: rec.loose_box.left,
@@ -2804,7 +2804,7 @@ impl CharView<'_, '_> {
     }
 
     /// Strict char box as an f32 rect (page space).
-    fn strict_char_box(&self) -> Option<RectF> {
+    pub(crate) fn strict_char_box(&self) -> Option<RectF> {
         match &self.rec {
             Some(rec) => Some(RectF {
                 left: rec.left as f32,

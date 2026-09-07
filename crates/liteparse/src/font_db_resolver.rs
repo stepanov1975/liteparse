@@ -138,14 +138,20 @@ impl FontDbResolver {
 
 impl GlyphResolver for FontDbResolver {
     fn resolve(&self, segments: &[(i32, f32, f32)]) -> Option<String> {
-        let key = Self::glyph_key(segments);
-        let prefix = u16::from(key[0]) << 8 | u16::from(key[1]);
-        let unicode = *self.shard(prefix)?.get(&key)?;
+        let unicode = self.resolve_codepoint(segments)?;
         let c = char::from_u32(unicode).filter(|c| !c.is_control())?;
         Some(match crate::glyph_names::presentation_form_expansion(c) {
             Some(s) => s.to_string(),
             None => c.to_string(),
         })
+    }
+
+    /// The recorded database value. A value of 0 is a recorded "unknown".
+    fn resolve_codepoint(&self, segments: &[(i32, f32, f32)]) -> Option<u32> {
+        let key = Self::glyph_key(segments);
+        let prefix = u16::from(key[0]) << 8 | u16::from(key[1]);
+        let unicode = *self.shard(prefix)?.get(&key)?;
+        (unicode != 0).then_some(unicode)
     }
 }
 
